@@ -123,17 +123,24 @@ class LabeledClass(object):
         label = sample['label']
         target_class = np.unique(label)
         target_class = target_class[target_class != 0]  # remove background
+        target_class = target_class.astype(np.int64)  # np.unique on a float-dtype
+        # label array (e.g. from nib.load(...).get_fdata(), always float64
+        # regardless of on-disk dtype) returns float values; indexing
+        # requires integers, so cast here rather than at every use site.
 
         # generate one-hot vector
         one_hot = np.zeros(self.num_classes, dtype=np.float32)
         one_hot[target_class - 1] = 1.0   # Note: Category IDs generally start from 1, so (-1)
 
-        return {
+        result = {
             'image': sample['image'],
             'label': label,
             'img_name': sample['img_name'],
             'cur_task': one_hot
         }
+        if 'forced_class' in sample:
+            result['forced_class'] = sample['forced_class']
+        return result
 
 
 class CreateOnehotLabel(object):
@@ -146,11 +153,14 @@ class CreateOnehotLabel(object):
         for i in range(self.num_classes):
             onehot_label[i, :, :, :] = (label == i).astype(np.float32)
 
-        return {'image': image,
+        result = {'image': image,
                 'label': sample['label'],
                 'onehot_label': onehot_label,
                 'img_name': sample['img_name'],
                 'cur_task': sample['cur_task']}
+        if 'forced_class' in sample:
+            result['forced_class'] = sample['forced_class']
+        return result
 
 
 class TrainerCrop(object):
@@ -165,7 +175,7 @@ class TrainerCrop(object):
 
     def __call__(self, sample):
         image, label = sample['image'], sample['label']
-        
+
         while True:
             slices = []
             for dim, patch in zip(image.shape, self.patch_size[::-1]):
@@ -175,14 +185,17 @@ class TrainerCrop(object):
 
             cropped_image = image[slices[0], slices[1], slices[2]]
             cropped_label = label[slices[0], slices[1], slices[2]]
-            
+
             if np.max(cropped_image) != np.min(cropped_image):
                 break
 
-        return {'image': cropped_image,
+        result = {'image': cropped_image,
                 'label': cropped_label,
                 'img_name': sample['img_name'],
                 'cur_task': sample['cur_task']}
+        if 'forced_class' in sample:
+            result['forced_class'] = sample['forced_class']
+        return result
 
 
 class ToTensor(object):
@@ -201,11 +214,14 @@ class ToTensor(object):
 
         image, label = image.astype(np.float32), label.astype(np.float32)
 
-        return {'image': torch.from_numpy(image),
+        result = {'image': torch.from_numpy(image),
                 'label': torch.from_numpy(label),
                 'onehot_label': torch.from_numpy(sample['onehot_label']),
                 'cur_task': torch.from_numpy(sample['cur_task']),
                 'img_name': sample['img_name'],}
+        if 'forced_class' in sample:
+            result['forced_class'] = torch.tensor(sample['forced_class'])
+        return result
 
 
 class Test_ToTensor(object):

@@ -16,6 +16,7 @@ from torch.nn import DataParallel
 import SimpleITK as sitk
 
 from dataloader.Dataloader3d import AbdomenOrgan
+from dataloader.CMFDataset import CMFAnatomyDataset
 from torchvision.utils import make_grid
 from torch.utils.data import DataLoader
 from torch.autograd import Variable
@@ -85,7 +86,7 @@ def validate_slice(model, dataloader, args, writer, epoch):
     val_dice = AverageMeter()
     with torch.no_grad():
         for sample in tqdm.tqdm(dataloader, total=len(dataloader), ncols=80, leave=False):
-            
+
             image = Variable(sample['image'].squeeze(dim=0).squeeze(dim=0).cuda())
             target = sample['label'].cuda()
             target = Variable(target)
@@ -94,7 +95,7 @@ def validate_slice(model, dataloader, args, writer, epoch):
                                                     patch_size=args.patch_size, num_classes=args.num_classes, batch_size=args.batch_size)
 
             gt_volumn = target.squeeze(dim=0)
-            
+
             if args.num_classes == 17:
                 dice_score = get_multi_class_evaluation_score(pred_seg, gt_volumn.cpu().numpy(),
                                                             [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16], False, 'dice')
@@ -102,8 +103,14 @@ def validate_slice(model, dataloader, args, writer, epoch):
                 dice_score = get_multi_class_evaluation_score(pred_seg, gt_volumn.cpu().numpy(),
                                                             [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], False, 'dice')
             else:
-                raise ValueError(f"Unknown dataset")
-            
+                # Generic fallback for any other num_classes (e.g. our CMF
+                # anatomy setup, num_classes=6), rather than raising
+                # ValueError. Just uses every class 0..num_classes-1,
+                # since we have no dataset-specific organ list hardcoded
+                # here the way WORD/FLARE2023 do above.
+                dice_score = get_multi_class_evaluation_score(pred_seg, gt_volumn.cpu().numpy(),
+                                                            list(range(args.num_classes)), False, 'dice')
+
             val_dice.update(torch.tensor(dice_score))
 
             if (epoch + 1) % (args.print_interval + 19) == 0:
@@ -111,7 +118,7 @@ def validate_slice(model, dataloader, args, writer, epoch):
                 image_v = image_v[0:1, :, :, 20:61:10].permute(3, 0, 1, 2).repeat(1, 3, 1, 1)
                 grid_image = make_grid(image_v, 5, normalize=True)
                 writer.add_image('train/Image', grid_image, epoch)
-                
+
                 seg_pred_v = torch.from_numpy(pred_seg).permute(1, 2, 0)
                 seg_pred_v = seg_pred_v[:, :, 20:61:10].permute(2, 0, 1)
                 pre_v = seg_pred_v.unsqueeze(dim=1).repeat(1, 3, 1, 1)
@@ -138,10 +145,10 @@ def train(model, train_loader, val_loader, writer, args):
     optimizer=torch.optim.SGD(model.parameters(), lr=args.learning_rate, momentum=0.99, nesterov=True)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.95, patience=4, verbose=True,
                                                      min_lr=1e-4)
-    
+
     best_dice = torch.zeros(args.num_classes)
     best_epoch = 1
-    
+
     for epoch in range(args.start_epoch, args.epoches):
         seg_loss_epoch = AverageMeter()
 
@@ -150,42 +157,48 @@ def train(model, train_loader, val_loader, writer, args):
                 enumerate(train_loader), total=len(train_loader),
                 desc='Train epoch=%d' % epoch, ncols=80, leave=False):
             model.train()
-            
+
             image = sample['image'].cuda()
             one_hot_lab = sample['onehot_label'].cuda()
             cur_task = sample['cur_task'].cuda()
-            
+            forced_class = sample.get('forced_class', None)
+            if forced_class is not None:
+                forced_class = forced_class.cuda()
+
             task_encoding = []
             img_fore = []
             lab_fore = []
             for i in range(image.shape[0]):
-                target_class = cur_task[i]
-                fg = torch.nonzero(target_class, as_tuple=False).squeeze(1)
-                if fg.numel() == 0:
-                    continue
-                fg += 1
-            
-                rand_cls = fg[random.randint(0, fg.shape[0]-1)]
-                task_encoding.append(rand_cls - 1)
+                if forced_class is not None:
+                    chosen_cls = forced_class[i]
+                else:
+                    target_class = cur_task[i]
+                    fg = torch.nonzero(target_class, as_tuple=False).squeeze(1)
+                    if fg.numel() == 0:
+                        continue
+                    fg += 1
+                    chosen_cls = fg[random.randint(0, fg.shape[0]-1)]
+
+                task_encoding.append(chosen_cls - 1)
                 img_fore.append(image[i])
                 lab_fore.append(one_hot_lab[i])
 
             if len(lab_fore) == 0:
                 continue
-            
+
             task_encoding = torch.zeros(size = (len(lab_fore), args.num_classes-1), dtype=torch.int, device="cuda")\
                                         .scatter_(1, torch.tensor(task_encoding, dtype=torch.int64, device="cuda")[:, None], 1)
             task_encoding = task_encoding.cuda()
             image = torch.stack(img_fore)
             one_hot_lab = torch.stack(lab_fore)
-            
+
             seg_pred = model(image, task_encoding)
-            
+
             idx = task_encoding.argmax(1, keepdim=True).repeat(1, 1, *image.shape[2:])
             gt = torch.gather(one_hot_lab[:, 1:], 1, idx)
 
             optimizer.zero_grad()
-            
+
             # Compute dice
             term_seg_Dice = loss_seg_DICE.forward(seg_pred, gt)
             term_seg_BCE = loss_seg_CE.forward(seg_pred, gt)
@@ -214,11 +227,11 @@ def train(model, train_loader, val_loader, writer, args):
         model_dir = os.path.join(args.workspace, 'models')
         if not os.path.exists(model_dir):
             os.mkdir(model_dir)
-        
+
         if (epoch + 1) % args.val_interval == 0:
             val_dice = validate_slice(model, val_loader, args, writer, epoch)
             logging.info('\n  Epoch[%4d/%4d] --> Valid...' % (epoch + 1, args.epoches))
-            
+
             if args.num_classes == 17:
                 logging.info(
                     '\t [Dice Coef: mean=%.4f, BG=%.4f, Liver=%.4f, Spleen=%.4f, LK=%.4f, RK=%.4f, Stomach=%.4f, Gallb=%.4f, Esopha=%.4f, Pancreas=%.4f, Duode=%.4f, Colon=%.4f, Intes=%.4f, Adrenal=%.4f, Rectum=%.4f, Bladder=%.4f, LH=%.4f, RH=%.4f]' %
@@ -244,7 +257,17 @@ def train(model, train_loader, val_loader, writer, args):
                                     'Esophagus': val_dice.avg[9], 'Stomach': val_dice.avg[10], 'Duodenum': val_dice.avg[11],
                                     'L_Kidney': val_dice.avg[12], 'BG': val_dice.avg[0],
                                     'mean': torch.mean(val_dice.avg)}, epoch)
-            
+            else:
+                # Generic fallback: no dataset-specific organ names known
+                # here for this num_classes, so log plain Class_i labels
+                # instead of crashing or silently doing nothing.
+                class_names = ['BG'] + [f'Class_{i}' for i in range(1, args.num_classes)]
+                per_class_str = ', '.join(f'{name}=%.4f' % val_dice.avg[i] for i, name in enumerate(class_names))
+                logging.info('\t [Dice Coef: mean=%.4f, %s]' % (torch.mean(val_dice.avg), per_class_str))
+                tb_dict = {name: val_dice.avg[i] for i, name in enumerate(class_names)}
+                tb_dict['mean'] = torch.mean(val_dice.avg)
+                writer.add_scalars('Val/Dice', tb_dict, epoch)
+
             # save best model
             if torch.mean(val_dice.avg) >= torch.mean(best_dice):
                 best_model_path = os.path.join(model_dir, 'best_model.pth')
@@ -256,7 +279,7 @@ def train(model, train_loader, val_loader, writer, args):
             else:
                 logging.info('\n [Epoch[%4d/%4d] --> Dice did not improved with %.4f in epoch %d)]' %
                                 (epoch + 1, args.epoches, torch.mean(best_dice), best_epoch))
-            
+
             # check for plateau
             dice_sum = 0
             dice_sum += torch.mean(val_dice.avg)
@@ -278,7 +301,7 @@ def main():
     # GPU Parallel
     # os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     # os.environ["CUDA_VISIBLE_DEVICES"] = "2, 3"
-        
+
     # define logger
     os.makedirs(args.exp_dir, exist_ok=True)
     logging.basicConfig(filename=os.path.join(args.exp_dir, 'train.log'), level=logging.DEBUG,
@@ -302,10 +325,10 @@ def main():
     ])
 
     # dataloader config
-    train_set = AbdomenOrgan(nii_dir=args.data_dir, mode='train', transform=composed_transforms_tr)
+    train_set = CMFAnatomyDataset(nii_dir=args.data_dir, mode='train', transform=composed_transforms_tr)
     train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True, num_workers=4, drop_last=True,
                               pin_memory=True)
-    valid_set = AbdomenOrgan(nii_dir=args.data_dir, mode='val', transform=composed_transforms_ts)
+    valid_set = CMFAnatomyDataset(nii_dir=args.data_dir, mode='val', transform=composed_transforms_ts)
     valid_loader = DataLoader(valid_set, batch_size=1, shuffle=False, num_workers=1, pin_memory=True)
 
     #  init model

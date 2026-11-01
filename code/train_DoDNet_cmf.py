@@ -53,6 +53,8 @@ def get_args(argv=None):
     p.add_argument('--patch_size', type=int, nargs='+', required=True, help='x y z')
     p.add_argument('--num_classes', type=int, default=7)
     p.add_argument('--batch_size', type=int, default=1)
+    p.add_argument('--fg_prob', type=float, default=1.0 / 3.0,
+                   help='share of training crops centred on a labelled structure (0 = all random)')
     p.add_argument('--epoches', type=int, default=250)
     p.add_argument('--lr', type=float, default=0.01)
     p.add_argument('--lr_schedule', choices=['poly', 'plateau'], default='poly')
@@ -119,7 +121,7 @@ def main(argv=None):
 
     sampler = None
     if args.cache_dir:
-        train_ds = CMFCacheDataset(args.cache_dir, 'train', args.patch_size, args.num_classes, args.seed)
+        train_ds = CMFCacheDataset(args.cache_dir, 'train', args.patch_size, args.num_classes, args.seed, fg_prob=args.fg_prob)
         val_ds = CMFCacheDataset(args.cache_dir, 'val', args.patch_size, args.num_classes, args.seed)
         sampler = EpochShuffleSampler(len(train_ds), args.seed)
         loader = DataLoader(train_ds, batch_size=args.batch_size, sampler=sampler, num_workers=args.workers,

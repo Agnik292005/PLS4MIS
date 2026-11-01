@@ -23,8 +23,8 @@ class Losses(unittest.TestCase):
     def test_me_modes_agree_when_nothing_is_unannotated(self):
         # every class annotated and present in the crop: logit-merge and probability-merge have nothing to merge
         logits, lab, ann = _case(0, [1, 2, 3, 4, 5, 6])
-        a = make_loss('me_stock', C)(logits, lab, ann)
-        b = make_loss('me_fixed', C)(logits, lab, ann)
+        a = make_loss('me_pl4mis', C)(logits, lab, ann)
+        b = make_loss('me_pl4cmf', C)(logits, lab, ann)
         self.assertAlmostEqual(float(a), float(b), places=5)
         ga, = torch.autograd.grad(a, logits, retain_graph=True)
         gb, = torch.autograd.grad(b, logits)
@@ -32,12 +32,12 @@ class Losses(unittest.TestCase):
 
     def test_me_modes_differ_when_something_is_unannotated(self):
         logits, lab, ann = _case(1, [1, 4])
-        a = make_loss('me_stock', C)(logits, lab, ann)
-        b = make_loss('me_fixed', C)(logits, lab, ann)
+        a = make_loss('me_pl4mis', C)(logits, lab, ann)
+        b = make_loss('me_pl4cmf', C)(logits, lab, ann)
         self.assertGreater(abs(float(a) - float(b)), 1e-4)
 
     def test_losses_are_finite_and_backprop(self):
-        for name in ('me_stock', 'me_fixed', 'leaf'):
+        for name in ('me_pl4mis', 'me_pl4cmf', 'leaf'):
             logits, lab, ann = _case(2, [2, 3, 5], B=2)
             loss = make_loss(name, C)(logits, lab, ann)
             self.assertTrue(torch.isfinite(loss), name)
@@ -48,7 +48,7 @@ class Losses(unittest.TestCase):
     def test_stock_loss_with_empty_crop_still_backprops(self):
         logits = torch.randn((1, C, 4, 4, 4), requires_grad=True)
         lab = torch.zeros((1, 4, 4, 4), dtype=torch.long)
-        loss = make_loss('me_stock', C)(logits, lab, torch.zeros(1, C))
+        loss = make_loss('me_pl4mis', C)(logits, lab, torch.zeros(1, C))
         loss.backward()                                   # must not raise
         self.assertEqual(float(loss), 0.0)
 
@@ -66,8 +66,8 @@ class MultiTalentTests(unittest.TestCase):
         for B in (1, 2):
             logits, lab, ann = _case(4, [1, 3, 5], B=B)
             repo = SampleClassAdaptiveLoss()(logits, lab)
-            mine = make_loss('mt_fixed', C)(logits, lab, ann)
-            wrap = make_loss('mt_stock', C)(logits, lab, ann)
+            mine = make_loss('mt_pl4cmf', C)(logits, lab, ann)
+            wrap = make_loss('mt_pl4mis', C)(logits, lab, ann)
             self.assertAlmostEqual(float(repo), float(mine), places=4)
             self.assertAlmostEqual(float(repo), float(wrap), places=6)
             g1, = torch.autograd.grad(repo, logits, retain_graph=True)
@@ -78,8 +78,8 @@ class MultiTalentTests(unittest.TestCase):
         logits, lab, ann = _case(5, [1, 3])
         ann2 = ann.clone()
         ann2[:, 5] = 1.0                                   # class 5 annotated in the scan, not in this crop
-        a = make_loss('mt_fixed', C)(logits, lab, ann)
-        b = make_loss('mt_fixed', C)(logits, lab, ann2)
+        a = make_loss('mt_pl4cmf', C)(logits, lab, ann)
+        b = make_loss('mt_pl4cmf', C)(logits, lab, ann2)
         self.assertGreater(abs(float(a) - float(b)), 1e-4)
 
 

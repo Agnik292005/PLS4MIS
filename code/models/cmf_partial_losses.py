@@ -253,17 +253,27 @@ class PLSegLoss(nn.Module):
         return total, {'sup': float(sup.detach()), 'distill': float(pseudo.detach()), 'cocr': float(co.detach())}
 
 
+# Names: <method>_pl4mis = as in the PL4MIS toolbox, <method>_pl4cmf = our fixes for the CMF benchmark.
+# mt_stock is reserved for the original MultiTalent repo (not ported yet).
+_OLD_NAMES = {'me_stock': 'me_pl4mis', 'me_fixed': 'me_pl4cmf', 'mt_fixed': 'mt_pl4cmf',
+              'plseg_stock': 'plseg_pl4mis', 'plseg_hybrid': 'plseg_pl4cmf', 'leaf': 'leaf_pl4cmf'}
+
+
 def make_loss(name, num_classes, **kw):
-    if name in ('plseg_stock', 'plseg_hybrid'):
-        return PLSegLoss(num_classes, scan_level=(name == 'plseg_hybrid'), **kw)
     if name == 'mt_stock':
+        raise ValueError("mt_stock is reserved for the original MultiTalent repo; "
+                         "use mt_pl4mis (PL4MIS toolbox version) or mt_pl4cmf (our fix)")
+    name = _OLD_NAMES.get(name, name)
+    if name in ('plseg_pl4mis', 'plseg_pl4cmf'):
+        return PLSegLoss(num_classes, scan_level=(name == 'plseg_pl4cmf'), **kw)
+    if name == 'mt_pl4mis':
         return MultiTalentStock()
-    if name == 'mt_fixed':
+    if name == 'mt_pl4cmf':
         return MultiTalentCMF()
-    if name == 'me_stock':
+    if name == 'me_pl4mis':
         return MarginalExclusionCMF(num_classes, 'crop', 'logits')
-    if name == 'me_fixed':
+    if name == 'me_pl4cmf':
         return MarginalExclusionCMF(num_classes, 'case', 'probs')
-    if name == 'leaf':
+    if name == 'leaf_pl4cmf':
         return LeafDiceCMF(num_classes)
     raise ValueError(name)

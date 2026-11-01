@@ -44,11 +44,24 @@ class Smoke(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             cache = os.path.join(d, 'cache')
             _make_cache(cache)
-            for name in ('ce_dice', 'me_stock', 'me_fixed', 'leaf', 'mt_stock', 'mt_fixed', 'plseg_stock', 'plseg_hybrid'):
+            for name in ('ce_dice', 'me_pl4mis', 'me_pl4cmf', 'leaf', 'mt_pl4mis', 'mt_pl4cmf', 'plseg_pl4mis', 'plseg_pl4cmf'):
                 snap = os.path.join(d, 'snap_' + name)
                 s = U.main(['--cache_dir', cache, '--snapshot_dir', snap, '--patch_size', '32', '32', '32',
                             '--device', 'cpu', '--workers', '0', '--val_interval', '0', '--epoches', '2',
                             '--final_val_overlap', '0.0', '--loss', name])
+                self.assertEqual(set(s['per_class']), {1, 2, 3, 4, 5, 6}, name)
+                self.assertTrue(os.path.exists(os.path.join(snap, 'final_model.pth')), name)
+
+
+    def test_every_loss_trains_batch2(self):
+        with tempfile.TemporaryDirectory() as d:
+            cache = os.path.join(d, 'cache')
+            _make_cache(cache)
+            for name in ('ce_dice', 'me_pl4mis', 'me_pl4cmf', 'leaf_pl4cmf', 'mt_pl4mis', 'mt_pl4cmf', 'plseg_pl4mis', 'plseg_pl4cmf'):
+                snap = os.path.join(d, 'snap2_' + name)
+                s = U.main(['--cache_dir', cache, '--snapshot_dir', snap, '--patch_size', '32', '32', '32',
+                            '--device', 'cpu', '--workers', '0', '--val_interval', '0', '--epoches', '2',
+                            '--final_val_overlap', '0.0', '--loss', name, '--batch_size', '2'])
                 self.assertEqual(set(s['per_class']), {1, 2, 3, 4, 5, 6}, name)
                 self.assertTrue(os.path.exists(os.path.join(snap, 'final_model.pth')), name)
 

@@ -18,7 +18,7 @@ from models.Proposed.unet3d_ProgCon import UNet3D_ProgCon
 from models.cmf_partial_losses import make_loss
 from utils.losses import DiceLoss
 
-VARIANTS = ['ce_dice', 'me_stock', 'me_fixed', 'leaf', 'mt_stock', 'mt_fixed', 'plseg_stock', 'plseg_hybrid']
+VARIANTS = ['ce_dice', 'me_pl4mis', 'me_pl4cmf', 'leaf_pl4cmf', 'mt_pl4mis', 'mt_pl4cmf', 'plseg_pl4mis', 'plseg_pl4cmf']
 
 
 def main(argv=None):
@@ -74,7 +74,7 @@ def main(argv=None):
             loss.backward()
             g = [q.grad for q in model.parameters() if q.grad is not None]
             empty = int(lab.max()) == 0
-            need_grad = not (name.endswith('stock') and name != 'plseg_stock' and empty)   # stock losses grade nothing on an empty crop
+            need_grad = not (name in ('me_pl4mis', 'mt_pl4mis') and empty)   # stock losses grade nothing on an empty crop
             fine &= bool(torch.isfinite(loss)) and all(torch.isfinite(x).all() for x in g) and (sum(float(x.abs().sum()) for x in g) > 0 or not need_grad)
             losses.append(float(loss))
         problems += 0 if fine else 1

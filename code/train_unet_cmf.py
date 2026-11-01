@@ -64,7 +64,7 @@ def get_args(argv=None):
     p.add_argument('--lr', type=float, default=0.01)
     p.add_argument('--lr_schedule', choices=['poly', 'plateau'], default='poly')
     p.add_argument('--clip_grad', type=float, default=0.0, help='clip gradient norm at this value (0 = off, only log it)')
-    p.add_argument('--loss', choices=['ce_dice', 'me_pl4mis', 'me_pl4cmf', 'leaf_pl4cmf', 'mt_pl4mis', 'mt_pl4cmf', 'plseg_pl4mis', 'plseg_pl4cmf', 'me_stock', 'me_fixed', 'leaf', 'mt_fixed', 'plseg_stock', 'plseg_hybrid'], default='ce_dice',
+    p.add_argument('--loss', choices=['ce_dice', 'me_pl4mis', 'me_pl4cmf', 'leaf_pl4cmf', 'leaf_merged', 'mt_pl4mis', 'mt_pl4cmf', 'plseg_pl4mis', 'plseg_pl4cmf', 'me_stock', 'me_fixed', 'leaf', 'mt_fixed', 'plseg_stock', 'plseg_hybrid'], default='ce_dice',
                    help='ce_dice = plain U-Net (unannotated = background); me_* = Marginal Exclusion loss; leaf = LeafDice idea; mt_* = MultiTalent loss (sigmoid outputs)')
     p.add_argument('--weight_init', default='xavier')
     p.add_argument('--consistency', type=float, default=0.1, help='PL-Seg: weight of the self-distillation term')

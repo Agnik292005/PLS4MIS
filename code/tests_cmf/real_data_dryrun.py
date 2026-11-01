@@ -74,7 +74,7 @@ def main(argv=None):
             loss.backward()
             g = [q.grad for q in model.parameters() if q.grad is not None]
             empty = int(lab.max()) == 0
-            need_grad = not (name in ('me_pl4mis', 'mt_pl4mis') and empty)   # stock losses grade nothing on an empty crop
+            need_grad = not (name in ('me_pl4mis', 'mt_pl4mis', 'leaf_pl4cmf') and empty)   # no labelled voxel in the crop: these three have nothing to learn from   # stock losses grade nothing on an empty crop
             fine &= bool(torch.isfinite(loss)) and all(torch.isfinite(x).all() for x in g) and (sum(float(x.abs().sum()) for x in g) > 0 or not need_grad)
             losses.append(float(loss))
         problems += 0 if fine else 1

@@ -122,6 +122,26 @@ class LeafDiceCMF(nn.Module):
         return total / B
 
 
+class LeafDicePL4CMF(nn.Module):
+    """Leaf-Dice as in the paper and in models/LeafDice/leaf_dice_loss.py (used unchanged). That loss needs a label code
+    for the 'background or unannotated' set; nothing in this pipeline creates it. Here it is made per scan: if the scan has
+    any unannotated structure, every label-0 voxel gets the superset code (= num_classes), so it is left out of the
+    numerators and still counts in the denominators. A fully annotated scan keeps its labels, so background stays a class."""
+
+    def __init__(self, num_classes):
+        super().__init__()
+        from models.LeafDice.leaf_dice_loss import LeafDiceLoss
+        self.C = num_classes
+        self.inner = LeafDiceLoss(num_classes)
+
+    def forward(self, logits, label, annotated):
+        lab = label.long().clone()
+        for i in range(lab.shape[0]):
+            if any(float(annotated[i][c]) < 0.5 for c in range(1, self.C)):
+                lab[i] = torch.where(lab[i] == 0, torch.full_like(lab[i], self.C), lab[i])
+        return self.inner(logits, lab)
+
+
 class MultiTalentStock(nn.Module):
     """The repo's SampleClassAdaptiveLoss, unchanged (imported). The set of annotated classes is read from the CROP."""
 
@@ -275,5 +295,7 @@ def make_loss(name, num_classes, **kw):
     if name == 'me_pl4cmf':
         return MarginalExclusionCMF(num_classes, 'case', 'probs')
     if name == 'leaf_pl4cmf':
+        return LeafDicePL4CMF(num_classes)
+    if name == 'leaf_merged':
         return LeafDiceCMF(num_classes)
     raise ValueError(name)
